@@ -57,7 +57,6 @@ impl RvHisto {
         let multiplier = stats.count() as f64 / weights.iter().map(|x| *x as f64).sum::<f64>();
         let _ = stats_w.array_update(
             (0..values.len())
-                .into_iter()
                 .map(|x| values[x] * weights[x] as f64 * multiplier)
                 .collect::<Vec<f64>>()
                 .as_slice(),
