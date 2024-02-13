@@ -11,5 +11,6 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = "1.0"
 histogram-sampler = "0.5.0"
+incr_stats = "1.0.1"
 rand = "0.8.5"
 rand_distr = "0.4.3"

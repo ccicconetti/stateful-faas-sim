@@ -5,14 +5,21 @@ struct RvHisto {
     rng: rand::rngs::StdRng,
     values: Vec<f64>,
     rv: rand_distr::weighted_alias::WeightedAliasIndex<usize>,
+    stats: incr_stats::incr::Stats,
+    stats_w: incr_stats::incr::Stats,
 }
 
 impl RvHisto {
     fn from_vector(seed: u64, values: Vec<f64>, weights: Vec<usize>) -> Self {
+        assert!(values.len() == weights.len());
+        assert!(!weights.is_empty());
+        let (stats, stats_w) = RvHisto::vec_to_stats(values.as_slice(), weights.as_slice());
         Self {
             rng: rand::rngs::StdRng::seed_from_u64(seed),
             values,
             rv: rand_distr::weighted_alias::WeightedAliasIndex::new(weights).unwrap(),
+            stats,
+            stats_w,
         }
     }
 
@@ -29,16 +36,49 @@ impl RvHisto {
             weights.push(tokens[0].parse::<f64>()? as usize);
             values.push(tokens[1].parse::<f64>()?);
         }
+        let (stats, stats_w) = RvHisto::vec_to_stats(values.as_slice(), weights.as_slice());
 
         Ok(Self {
             rng: rand::rngs::StdRng::seed_from_u64(seed),
             values,
-            rv: rand_distr::weighted_alias::WeightedAliasIndex::new(weights).unwrap(),
+            rv: rand_distr::weighted_alias::WeightedAliasIndex::new(weights)?,
+            stats,
+            stats_w,
         })
     }
 
-    fn sample(&mut self) -> f64 {
+    fn vec_to_stats(
+        values: &[f64],
+        weights: &[usize],
+    ) -> (incr_stats::incr::Stats, incr_stats::incr::Stats) {
+        let mut stats = incr_stats::incr::Stats::new();
+        let _ = stats.array_update(values);
+        let mut stats_w = incr_stats::incr::Stats::new();
+        let multiplier = stats.count() as f64 / weights.iter().map(|x| *x as f64).sum::<f64>();
+        let _ = stats_w.array_update(
+            (0..values.len())
+                .into_iter()
+                .map(|x| values[x] * weights[x] as f64 * multiplier)
+                .collect::<Vec<f64>>()
+                .as_slice(),
+        );
+        (stats, stats_w)
+    }
+
+    pub fn sample(&mut self) -> f64 {
         self.values[self.rv.sample(&mut self.rng)]
+    }
+
+    pub fn min(&self) -> f64 {
+        self.stats.min().unwrap_or_default()
+    }
+
+    pub fn mean(&self) -> f64 {
+        self.stats_w.mean().unwrap_or_default()
+    }
+
+    pub fn max(&self) -> f64 {
+        self.stats.max().unwrap_or_default()
     }
 }
 
@@ -47,11 +87,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_rv_histo_single_value() {
+        let rvh = RvHisto::from_vector(42, (&[42.0]).to_vec(), (&[1]).to_vec());
+        assert!(rvh.min() == 42.0);
+        assert!(rvh.mean() == 42.0);
+        assert!(rvh.max() == 42.0);
+    }
+
+    #[test]
     fn test_rv_histo_vector_ctor() {
         let v = vec![0.0_f64, 1_f64, 2_f64, 3_f64];
         let w = vec![1, 10, 1, 10];
         let mut counts = vec![0; v.len()];
         let mut rvh = RvHisto::from_vector(42, v, w);
+        assert!(rvh.min() == 0.0);
+        assert!(rvh.mean() == 42.0 / 22.0);
+        assert!(rvh.max() == 3.0);
         for _ in 0..100000 {
             counts[rvh.sample() as usize] += 1;
         }
@@ -75,5 +126,34 @@ mod tests {
         }
         assert_eq!(0, counts.iter().filter(|x| *x.0 < 2 || *x.0 > 303).count());
         assert_eq!(100000_usize, counts.iter().map(|x| x.1).sum());
+    }
+
+    #[test]
+    fn test_rv_histo_all_files_stats() {
+        let mut files = vec![
+            String::from("instance_cpu_dist.dat"),
+            String::from("instance_duration_dist.dat"),
+            String::from("instance_mem_dist.dat"),
+            String::from("instance_num_dist.dat"),
+            String::from("job_interval_dist.dat"),
+            String::from("task_cpu_dist.dat"),
+            String::from("task_duration_dist.dat"),
+            String::from("task_mem_dist.dat"),
+            String::from("task_num_dist.dat"),
+        ];
+        for i in 1..=20 {
+            files.push(format!("level_dist-{}.dat", i));
+        }
+        for i in 2..=35 {
+            files.push(format!("cpl_dist-{}.dat", i));
+        }
+
+        for file in files {
+            let rvh = RvHisto::from_file(42, format!("data/{}", file).as_str())
+                .expect(format!("could not create a RvHisto file: {}", file).as_str());
+            assert!(rvh.min() <= rvh.mean());
+            assert!(rvh.mean() <= rvh.max());
+            println!("{}: {}, {}, {}", file, rvh.min(), rvh.mean(), rvh.max());
+        }
     }
 }
