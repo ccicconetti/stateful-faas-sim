@@ -1,7 +1,7 @@
 use rand::{distributions::Distribution, SeedableRng};
 use std::io::prelude::*;
 
-struct RvHisto {
+pub struct RvHisto {
     rng: rand::rngs::StdRng,
     values: Vec<f64>,
     rv: rand_distr::weighted_alias::WeightedAliasIndex<usize>,
@@ -10,6 +10,7 @@ struct RvHisto {
 }
 
 impl RvHisto {
+    #[cfg(test)]
     fn from_vector(seed: u64, values: Vec<f64>, weights: Vec<usize>) -> Self {
         assert!(values.len() == weights.len());
         assert!(!weights.is_empty());
@@ -23,7 +24,7 @@ impl RvHisto {
         }
     }
 
-    fn from_file(seed: u64, filename: &str) -> anyhow::Result<Self> {
+    pub fn from_file(seed: u64, filename: &str) -> anyhow::Result<Self> {
         let infile = std::fs::File::open(filename)?;
         let reader = std::io::BufReader::new(infile);
 
