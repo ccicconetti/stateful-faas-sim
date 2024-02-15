@@ -1,6 +1,14 @@
 use rand::{distributions::Distribution, SeedableRng};
 use std::io::prelude::*;
 
+struct SampleFiles {
+    /// Key: filename. Value: vector of (weight, value)
+    samples: std::collections::HashMap<String, (Vec<usize>, Vec<f64>)>,
+}
+
+static SAMPLE_FILES: std::sync::OnceLock<std::sync::Mutex<SampleFiles>> =
+    std::sync::OnceLock::new();
+
 pub struct RvHisto {
     rng: rand::rngs::StdRng,
     values: Vec<f64>,
@@ -25,24 +33,38 @@ impl RvHisto {
     }
 
     pub fn from_file(seed: u64, filename: &str) -> anyhow::Result<Self> {
-        let infile = std::fs::File::open(filename)?;
-        let reader = std::io::BufReader::new(infile);
+        // initialize the database of samples files, if not yet done
+        let _ = SAMPLE_FILES.set(std::sync::Mutex::new(SampleFiles {
+            samples: std::collections::HashMap::new(),
+        }));
 
-        let mut values = vec![];
-        let mut weights = vec![];
-        for (i, line) in reader.lines().enumerate() {
-            let line = line?;
-            let tokens = line.split(' ').collect::<Vec<&str>>();
-            anyhow::ensure!(tokens.len() == 2, format!("invalid line {}", i));
-            weights.push(tokens[0].parse::<f64>()? as usize);
-            values.push(tokens[1].parse::<f64>()?);
-        }
-        let (stats, stats_w) = RvHisto::vec_to_stats(values.as_slice(), weights.as_slice());
+        // read from file only if the values are not already cached
+        let sample_files = SAMPLE_FILES.get().unwrap().lock().unwrap();
+        let samples = match sample_files.samples.get(filename) {
+            Some(val) => val.clone(),
+            None => {
+                let infile = std::fs::File::open(filename)?;
+                let reader = std::io::BufReader::new(infile);
+
+                let mut values = vec![];
+                let mut weights = vec![];
+                for (i, line) in reader.lines().enumerate() {
+                    let line = line?;
+                    let tokens = line.split(' ').collect::<Vec<&str>>();
+                    anyhow::ensure!(tokens.len() == 2, format!("invalid line {}", i));
+                    weights.push(tokens[0].parse::<f64>()? as usize);
+                    values.push(tokens[1].parse::<f64>()?);
+                }
+                (weights, values)
+            }
+        };
+
+        let (stats, stats_w) = RvHisto::vec_to_stats(samples.1.as_slice(), samples.0.as_slice());
 
         Ok(Self {
             rng: rand::rngs::StdRng::seed_from_u64(seed),
-            values,
-            rv: rand_distr::weighted_alias::WeightedAliasIndex::new(weights)?,
+            values: samples.1,
+            rv: rand_distr::weighted_alias::WeightedAliasIndex::new(samples.0)?,
             stats,
             stats_w,
         })
@@ -126,6 +148,28 @@ mod tests {
         }
         assert_eq!(0, counts.iter().filter(|x| *x.0 < 2 || *x.0 > 303).count());
         assert_eq!(100000_usize, counts.iter().map(|x| x.1).sum());
+    }
+
+    #[test]
+    fn test_rv_histo_file_repeatable() {
+        let filename = "data/task_mem_dist.dat";
+        let mut rvh1 =
+            RvHisto::from_file(42, filename).expect("could not create a RvHisto from file");
+        let mut rvh2 =
+            RvHisto::from_file(42, filename).expect("could not create a RvHisto from file");
+        let mut rvh3 =
+            RvHisto::from_file(43, filename).expect("could not create a RvHisto from file");
+        let mut count_same = 0;
+        for _ in 0..1000 {
+            let s1 = rvh1.sample();
+            let s2 = rvh2.sample();
+            let s3 = rvh3.sample();
+            assert!(s1 == s2);
+            if s1 == s3 {
+                count_same += 1;
+            }
+        }
+        assert!(count_same < 500);
     }
 
     #[test]
