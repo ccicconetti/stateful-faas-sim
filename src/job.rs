@@ -63,6 +63,18 @@ impl Job {
         Self { graph }
     }
 
+    pub fn total_cpu(&self) -> usize {
+        self.graph.node_weights().map(|x| x.cpu_request).sum()
+    }
+
+    pub fn total_state_size(&self) -> usize {
+        self.graph.node_weights().map(|x| x.state_size).sum()
+    }
+
+    pub fn total_arg_size(&self) -> usize {
+        self.graph.edge_weights().map(|x| x.arg_size).sum()
+    }
+
     pub fn print_to_dot(&self) {
         println!("{}", petgraph::dot::Dot::new(&self.graph))
     }
@@ -236,6 +248,10 @@ mod tests {
             ],
         );
         job.print_to_dot();
+
+        assert_eq!(1000, job.total_cpu());
+        assert_eq!(10, job.total_state_size());
+        assert_eq!(100, job.total_arg_size());
     }
 
     #[test]
