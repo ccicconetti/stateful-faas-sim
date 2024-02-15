@@ -146,7 +146,7 @@ impl JobFactory {
     /// Create a new random job.
     pub fn make(&mut self) -> Job {
         // draw the number of tasks and assign them random characteristics
-        let num = self.num_rv.sample() as u32;
+        let num: u32 = self.num_rv.sample() as u32;
         assert!(
             num > 0,
             "invalid task_num_dist.dat file: cannot have 0 number of tasks"
@@ -161,10 +161,13 @@ impl JobFactory {
 
         // draw the number of tasks in the critical path (cpl = critical path length)
         let saturate = |x| std::cmp::min(x, 35);
-        let cpl = match num {
-            1 => 1,
-            val => self.cpl_rv.get_mut(&saturate(val)).unwrap().sample() as u32,
-        };
+        let cpl = std::cmp::min(
+            num,
+            match num {
+                1 => 1,
+                val => self.cpl_rv.get_mut(&saturate(val)).unwrap().sample() as u32,
+            },
+        );
 
         // assign a level (with 1-based index) to each task
         // - tasks in the critical path form a chain
@@ -221,6 +224,24 @@ impl JobFactory {
                     }
                 }
             }
+        }
+
+        // make sure that all edges exist
+        let num_vertices = vertices.len() as u32;
+        for (u, v, _) in &edges {
+            if *v >= num_vertices {
+                println!(
+                    "{} {} {} {:?}\n{:?}\n{:?}",
+                    num,
+                    cpl,
+                    vertices.len(),
+                    level,
+                    vertices,
+                    edges
+                );
+            }
+            assert!(*u < num_vertices);
+            assert!(*v < num_vertices);
         }
 
         Job::new(vertices, edges)
