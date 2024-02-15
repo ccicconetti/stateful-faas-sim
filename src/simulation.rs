@@ -139,10 +139,6 @@ impl Simulation {
         );
         anyhow::ensure!(config.job_lifetime > 0.0, "vanishing avg job lifetime");
         anyhow::ensure!(
-            config.job_invocation_rate > 0.0,
-            "vanishing invocation rate"
-        );
-        anyhow::ensure!(
             config.defragmentation_interval > 0,
             "vanishing defragmentation interval"
         );
