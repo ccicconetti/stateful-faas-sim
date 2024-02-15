@@ -19,3 +19,5 @@ Cargo.lock
 /target
 .vscode
 .DS_store
+log
+out.csv
