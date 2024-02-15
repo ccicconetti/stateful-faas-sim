@@ -90,7 +90,7 @@ pub struct JobFactory {
 impl JobFactory {
     /// Create a factor of jobs initialized with the given pseudo-random number generator seed.
     pub fn new(seed: u64, state_mul: f64, arg_mul: f64) -> anyhow::Result<Self> {
-        let mut seed_cnt = 0 as u64;
+        let mut seed_cnt = 0_u64;
         let mut next_seed = || {
             seed_cnt += 1;
             seed + 1000000 * seed_cnt
