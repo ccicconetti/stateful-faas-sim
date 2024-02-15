@@ -77,14 +77,15 @@ impl Ord for Event {
 
 #[derive(Debug)]
 pub struct Output {
+    pub seed: u64,
     pub avg_busy_nodes: f64,
     pub total_traffic: f64,
-    pub seed: u64,
+    pub migration_rate: f64,
 }
 
 impl Output {
     pub fn header() -> &'static str {
-        "seed,avg-busy-nodes,total-traffic"
+        "seed,avg-busy-nodes,total-traffic,migration-rate"
     }
 }
 
@@ -92,8 +93,8 @@ impl std::fmt::Display for Output {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{},{},{}",
-            self.seed, self.avg_busy_nodes, self.total_traffic
+            "{},{},{},{}",
+            self.seed, self.avg_busy_nodes, self.total_traffic, self.migration_rate
         )
     }
 }
@@ -158,16 +159,26 @@ impl Simulation {
 
     /// Run a simulation.
     pub fn run(&mut self) -> Output {
+        // create the event queue and push initial events
         let mut events = std::collections::BinaryHeap::new();
         events.push(Event::JobStart(0));
         events.push(Event::ExperimentEnd(self.config.duration));
         events.push(Event::Defragmentation(self.config.defragmentation_interval));
+
+        // initialize simulated time and ID of the first job
         let mut now = 0;
         let mut job_id = 0;
+
+        // configure random variables for workload generation
         let job_interarrival_rv = rand_distr::Exp::new(1.0 / self.config.job_interarrival).unwrap();
         let job_duration_rv = rand_distr::Exp::new(1.0 / self.config.job_lifetime).unwrap();
+
+        // initialize metric counters
         let mut avg_busy_nodes = 0.0;
         let mut total_traffic = 0.0;
+        let mut migration_rate = 0.0;
+
+        // simulation loop
         'main_loop: loop {
             if let Some(event) = events.pop() {
                 let stat_interval = (event.time() - now) as f64;
@@ -208,7 +219,9 @@ impl Simulation {
                         log::debug!("D {}", now);
 
                         // perform optimization of the current active jobs
-                        total_traffic += self.defragment();
+                        let (migration_traffic, num_migrations) = self.defragment();
+                        total_traffic += migration_traffic;
+                        migration_rate += num_migrations;
 
                         // schedule the next defragmentation
                         events.push(Event::Defragmentation(
@@ -218,11 +231,15 @@ impl Simulation {
                 }
             }
         }
+
+        // return the simulation output
         avg_busy_nodes /= self.config.duration as f64;
+        migration_rate /= self.config.duration as f64;
         Output {
             avg_busy_nodes,
             total_traffic,
             seed: self.config.seed,
+            migration_rate,
         }
     }
 
@@ -238,10 +255,10 @@ impl Simulation {
         assert!(_insert_ret.is_none());
     }
 
-    fn defragment(&mut self) -> f64 {
+    fn defragment(&mut self) -> (f64, f64) {
         match self.config.policy {
-            Policy::StatelessMinNodes => 0.0,
-            Policy::StatelessMaxBalancing => 0.0,
+            Policy::StatelessMinNodes => (0.0, 0.0),
+            Policy::StatelessMaxBalancing => (0.0, 0.0),
             Policy::StatefulBestFit => panic!("not implemented"),
             Policy::StatefulRandom => panic!("not implemented"),
         }
