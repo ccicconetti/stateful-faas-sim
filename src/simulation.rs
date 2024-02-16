@@ -322,6 +322,7 @@ impl Simulation {
                 for (index, weight) in job.graph.node_references() {
                     let task_id = index.index() as u32;
                     let cpu = weight.cpu_request;
+                    assert!(cpu <= self.config.node_capacity);
                     let mut candidates = vec![];
                     for (node_id, node) in self.nodes.iter().enumerate() {
                         let capacity_used = self.capacity_used(node);
