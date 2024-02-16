@@ -1,10 +1,23 @@
-use rand::{distributions::Distribution, SeedableRng};
+use petgraph::visit::{EdgeRef, IntoNodeReferences};
+use rand::{distributions::Distribution, seq::SliceRandom, SeedableRng};
 
 #[derive(Debug, Clone)]
 pub enum Policy {
+    /// Fluid model: each task is assigned a fraction of a node.
+    /// Only the minimum number of nodes are kept active to match the requests.
     StatelessMinNodes,
+    /// Same as `Policy::StatelessMinNodes` but all the required nodes
+    /// always remain active.
     StatelessMaxBalancing,
+    /// When allocating the task of a job:
+    /// - if there is another task of the same job that depends on this one
+    ///   in a node with sufficient residual capacity, use that node
+    /// - otherwise, allocate the task to the node that minimizes the
+    ///   residual capacity, if any available (if not: add a new node)
     StatefulBestFit,
+    /// Allocate task job by job, each assigned to a random node
+    /// among those with sufficient residual capacity, otherwise
+    /// a new node is added.
     StatefulRandom,
 }
 
@@ -133,11 +146,25 @@ pub struct Config {
     pub seed: u64,
 }
 
+#[derive(Debug)]
+struct Node {
+    pub jobs: Vec<(u64, u32)>, // job ID, task ID within the job
+}
+
+impl Node {
+    fn is_active(&self) -> bool {
+        !self.jobs.is_empty()
+    }
+}
+
 pub struct Simulation {
     job_factory: crate::job::JobFactory,
     job_interarrival_rng: rand::rngs::StdRng,
     job_lifetime_rng: rand::rngs::StdRng,
     active_jobs: std::collections::HashMap<u64, crate::job::Job>,
+    nodes: Vec<Node>,
+    allocations: std::collections::HashMap<u64, usize>, // key: hash of job ID and task ID; value: node ID
+    allocate_rng: rand::rngs::StdRng,
     config: Config,
 }
 
@@ -160,9 +187,12 @@ impl Simulation {
                 config.state_mul,
                 config.arg_mul,
             )?,
-            job_interarrival_rng: rand::rngs::StdRng::seed_from_u64(config.seed + 1000000),
-            job_lifetime_rng: rand::rngs::StdRng::seed_from_u64(config.seed),
+            job_interarrival_rng: rand::rngs::StdRng::seed_from_u64(config.seed),
+            job_lifetime_rng: rand::rngs::StdRng::seed_from_u64(config.seed + 1000000),
             active_jobs: std::collections::HashMap::new(),
+            nodes: vec![],
+            allocations: std::collections::HashMap::new(),
+            allocate_rng: rand::rngs::StdRng::seed_from_u64(config.seed + 1100000),
             config,
         })
     }
@@ -185,7 +215,7 @@ impl Simulation {
 
         // initialize metric counters
         let mut avg_busy_nodes = 0.0;
-        let mut max_busy_nodes = 0.0;
+        let mut max_busy_nodes = 0;
         let mut total_traffic = 0.0;
         let mut migration_rate = 0.0;
 
@@ -195,19 +225,27 @@ impl Simulation {
                 let stat_interval = (event.time() - now) as f64;
                 now = event.time();
                 let (busy_nodes, traffic) = self.compute_stats(self.config.node_capacity);
-                avg_busy_nodes += busy_nodes * stat_interval; // unit: s
-                max_busy_nodes = f64::max(max_busy_nodes, busy_nodes);
+                avg_busy_nodes += busy_nodes as f64 * stat_interval; // unit: s
+                max_busy_nodes = usize::max(max_busy_nodes, busy_nodes);
                 total_traffic += traffic * self.config.job_invocation_rate * stat_interval; // unit: bits
                 match event {
                     Event::JobStart(_) => {
-                        // create a job and allocate it
+                        // create a new job and draw randomly its lifetime
                         let job = self.job_factory.make();
+                        let job_lifetime =
+                            job_duration_rv.sample(&mut self.job_lifetime_rng).ceil() as u64;
+                        log::debug!(
+                            "A {} job ID {} (lifetime {} s) {}",
+                            now,
+                            job_id,
+                            job_lifetime,
+                            job
+                        );
+
+                        // allocate the tasks of a job to processing nodes
                         self.allocate(job_id, job);
 
                         // schedule the end of this job
-                        let job_lifetime =
-                            job_duration_rv.sample(&mut self.job_lifetime_rng).ceil() as u64;
-                        log::debug!("A {} job ID {} (lifetime {} s)", now, job_id, job_lifetime);
                         events.push(Event::JobEnd(now + job_lifetime, job_id));
 
                         // schedule a new job
@@ -220,8 +258,7 @@ impl Simulation {
                     }
                     Event::JobEnd(_, id) => {
                         log::debug!("T {} job ID {}", now, id);
-                        let _remove_ret = self.active_jobs.remove(&id);
-                        assert!(_remove_ret.is_some());
+                        self.deallocate(id);
                     }
                     Event::ExperimentEnd(_) => {
                         log::debug!("E {}", now);
@@ -246,10 +283,10 @@ impl Simulation {
 
         // adapt the busy node metric to the different policies
         avg_busy_nodes = match self.config.policy {
-            Policy::StatelessMinNodes => avg_busy_nodes / self.config.duration as f64,
-            Policy::StatelessMaxBalancing => max_busy_nodes,
-            Policy::StatefulBestFit => panic!("not implemented"),
-            Policy::StatefulRandom => panic!("not implemented"),
+            Policy::StatelessMinNodes | Policy::StatefulBestFit | Policy::StatefulRandom => {
+                avg_busy_nodes / self.config.duration as f64
+            }
+            Policy::StatelessMaxBalancing => max_busy_nodes as f64,
         };
 
         // return the simulation output
@@ -262,40 +299,161 @@ impl Simulation {
         }
     }
 
+    fn job_task_hash(job_id: u64, task_id: u32) -> u64 {
+        assert!(task_id < 1000);
+        job_id * 1000 + task_id as u64
+    }
+
     fn allocate(&mut self, job_id: u64, job: crate::job::Job) {
+        let _insert_ret = self.active_jobs.insert(job_id, job.clone());
+        assert!(_insert_ret.is_none());
         match self.config.policy {
             Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => {}
             Policy::StatefulBestFit => panic!("not implemented"),
-            Policy::StatefulRandom => panic!("not implemented"),
+            Policy::StatefulRandom => {
+                for (index, weight) in job.graph.node_references() {
+                    let task_id = index.index() as u32;
+                    let cpu = weight.cpu_request;
+                    let mut candidates = vec![];
+                    for (node_id, node) in self.nodes.iter().enumerate() {
+                        let capacity_used = self.capacity_used(node);
+                        if capacity_used > 0 && (self.config.node_capacity - capacity_used) > cpu {
+                            candidates.push(node_id);
+                        }
+                    }
+                    match candidates.choose(&mut self.allocate_rng) {
+                        Some(node_id) => {
+                            self.add_job(job_id, task_id, *node_id);
+                        }
+                        None => match self
+                            .nodes
+                            .iter()
+                            .enumerate()
+                            .find(|(_node_id, node)| !node.is_active())
+                        {
+                            Some((node_id, _node)) => {
+                                self.add_job(job_id, task_id, node_id);
+                            }
+                            None => {
+                                self.nodes.push(Node { jobs: vec![] });
+                                self.add_job(job_id, task_id, self.nodes.len() - 1);
+                            }
+                        },
+                    }
+                }
+            }
         };
+    }
 
-        let _insert_ret = self.active_jobs.insert(job_id, job);
-        assert!(_insert_ret.is_none());
+    fn deallocate(&mut self, job_id: u64) {
+        match self.config.policy {
+            Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => {}
+            Policy::StatefulBestFit => panic!("not implemented"),
+            Policy::StatefulRandom => {
+                self.active_jobs
+                    .get(&job_id)
+                    .unwrap()
+                    .graph
+                    .node_indices()
+                    .for_each(|x| self.del_job(job_id, x.index() as u32));
+            }
+        };
+        let _remove_ret = self.active_jobs.remove(&job_id);
+        assert!(_remove_ret.is_some());
+    }
+
+    fn add_job(&mut self, job_id: u64, task_id: u32, node_id: usize) {
+        log::debug!("add job {}, task {}, to node {}", job_id, task_id, node_id);
+        self.nodes[node_id].jobs.push((job_id, task_id));
+        self.allocations
+            .insert(Simulation::job_task_hash(job_id, task_id), node_id);
+    }
+
+    fn del_job(&mut self, job_id: u64, task_id: u32) {
+        let node_id = self
+            .allocations
+            .remove(&Simulation::job_task_hash(job_id, task_id))
+            .unwrap();
+        log::debug!(
+            "del job {}, task {}, from node {}",
+            job_id,
+            task_id,
+            node_id
+        );
+        self.nodes[node_id]
+            .jobs
+            .retain(|(cur_job_id, cur_task_id)| *cur_job_id != job_id || *cur_task_id != task_id);
+    }
+
+    fn capacity_used(&self, node: &Node) -> usize {
+        node.jobs
+            .iter()
+            .map(|(job_id, task_id)| {
+                self.active_jobs
+                    .get(job_id)
+                    .unwrap()
+                    .graph
+                    .node_weight((*task_id).into())
+                    .unwrap()
+                    .cpu_request
+            })
+            .sum::<usize>()
     }
 
     fn defragment(&mut self) -> (f64, f64) {
         match self.config.policy {
             Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => (0.0, 0.0),
             Policy::StatefulBestFit => panic!("not implemented"),
-            Policy::StatefulRandom => panic!("not implemented"),
+            Policy::StatefulRandom => (0.0, 0.0),
         }
     }
 
     /// Return the statistics computed at this time: (number of busy nodes, total traffic).
-    fn compute_stats(&mut self, node_capacity: usize) -> (f64, f64) {
+    fn compute_stats(&mut self, node_capacity: usize) -> (usize, f64) {
         let busy_nodes = |x: &std::collections::HashMap<u64, crate::job::Job>| {
             (x.values().map(|x| x.total_cpu()).sum::<usize>() as f64 / node_capacity as f64).ceil()
+                as usize
         };
         let tot_size = |x: &std::collections::HashMap<u64, crate::job::Job>| {
             x.values().map(|x| x.total_state_size()).sum::<usize>() as f64
                 + x.values().map(|x| x.total_arg_size()).sum::<usize>() as f64
         };
+
         match self.config.policy {
             Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => {
                 (busy_nodes(&self.active_jobs), tot_size(&self.active_jobs))
             }
-            Policy::StatefulBestFit => panic!("not implemented"),
-            Policy::StatefulRandom => panic!("not implemented"),
+            Policy::StatefulBestFit | Policy::StatefulRandom => (
+                self.nodes.iter().filter(|x| x.is_active()).count(),
+                self.active_jobs
+                    .iter()
+                    .map(|(job_id, job)| {
+                        let mut cnt = 0;
+                        for node_ndx in job.graph.node_indices() {
+                            for edge in job.graph.edges(node_ndx) {
+                                let u = self
+                                    .allocations
+                                    .get(&Simulation::job_task_hash(
+                                        *job_id,
+                                        edge.source().index() as u32,
+                                    ))
+                                    .unwrap();
+                                let v = self
+                                    .allocations
+                                    .get(&Simulation::job_task_hash(
+                                        *job_id,
+                                        edge.target().index() as u32,
+                                    ))
+                                    .unwrap();
+                                if u != v {
+                                    cnt += edge.weight().arg_size;
+                                }
+                            }
+                        }
+                        cnt
+                    })
+                    .sum::<usize>() as f64,
+            ),
         }
     }
 }
@@ -307,7 +465,7 @@ mod tests {
     #[test]
     fn test_simulation_run() -> anyhow::Result<()> {
         for policy in Policy::all() {
-            if let Policy::StatefulBestFit | Policy::StatefulRandom = policy {
+            if let Policy::StatefulBestFit = policy {
                 continue;
             }
             let _ = env_logger::try_init();
@@ -327,9 +485,12 @@ mod tests {
                 })?;
                 out.push(sim.run());
             }
+            println!("{} {:?}", policy, out);
             for i in 1..3 {
                 match policy {
-                    Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => {
+                    Policy::StatelessMinNodes
+                    | Policy::StatelessMaxBalancing
+                    | Policy::StatefulRandom => {
                         assert!(out[i].avg_busy_nodes * 0.5 < out[0].avg_busy_nodes);
                         assert!(out[i].avg_busy_nodes * 1.5 > out[0].avg_busy_nodes);
                         assert!(
@@ -340,7 +501,6 @@ mod tests {
                         );
                     }
                     Policy::StatefulBestFit => panic!("not implemented"),
-                    Policy::StatefulRandom => panic!("not implemented"),
                 };
             }
         }

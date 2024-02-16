@@ -2,12 +2,12 @@ use crate::rv_histo;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Vertex {
     /// CPU requested to execute this task, every 100 unit means 1 core
-    cpu_request: usize,
+    pub cpu_request: usize,
     /// Size of the internal state of this task, in MB
-    state_size: usize,
+    pub state_size: usize,
 }
 
 impl Vertex {
@@ -29,10 +29,10 @@ impl std::fmt::Display for Vertex {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Edge {
     /// Size of the invocation arguments, in MB
-    arg_size: usize,
+    pub arg_size: usize,
 }
 
 impl Edge {
@@ -47,6 +47,7 @@ impl std::fmt::Display for Edge {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Job {
     pub graph: petgraph::Graph<Vertex, Edge>,
 }
@@ -77,6 +78,20 @@ impl Job {
 
     pub fn print_to_dot(&self) {
         println!("{}", petgraph::dot::Dot::new(&self.graph))
+    }
+}
+
+impl std::fmt::Display for Job {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} tasks (tot cpu {}, tot state {}), {} invocations (tot args {})",
+            self.graph.node_count(),
+            self.total_cpu(),
+            self.total_state_size(),
+            self.total_arg_size(),
+            self.graph.edge_count()
+        )
     }
 }
 
