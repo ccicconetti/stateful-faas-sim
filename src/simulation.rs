@@ -104,11 +104,12 @@ pub struct Output {
     pub avg_busy_nodes: f64,
     pub total_traffic: f64,
     pub migration_rate: f64,
+    pub execution_time: f64,
 }
 
 impl Output {
     pub fn header() -> &'static str {
-        "seed,avg-busy-nodes,total-traffic,migration-rate"
+        "seed,avg-busy-nodes,total-traffic,migration-rate,execution-time"
     }
 }
 
@@ -116,8 +117,12 @@ impl std::fmt::Display for Output {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{},{},{},{}",
-            self.seed, self.avg_busy_nodes, self.total_traffic, self.migration_rate
+            "{},{},{},{},{}",
+            self.seed,
+            self.avg_busy_nodes,
+            self.total_traffic,
+            self.migration_rate,
+            self.execution_time
         )
     }
 }
@@ -220,6 +225,7 @@ impl Simulation {
         let mut migration_rate = 0.0;
 
         // simulation loop
+        let real_now = std::time::Instant::now();
         'main_loop: loop {
             if let Some(event) = events.pop() {
                 let stat_interval = (event.time() - now) as f64;
@@ -280,6 +286,7 @@ impl Simulation {
                 }
             }
         }
+        let execution_time = real_now.elapsed().as_secs_f64();
 
         // adapt the busy node metric to the different policies
         avg_busy_nodes = match self.config.policy {
@@ -296,6 +303,7 @@ impl Simulation {
             total_traffic,
             seed: self.config.seed,
             migration_rate,
+            execution_time,
         }
     }
 
