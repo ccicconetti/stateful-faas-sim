@@ -1,6 +1,6 @@
 use rand::{distributions::Distribution, SeedableRng};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Policy {
     StatelessMinNodes,
     StatelessMaxBalancing,
@@ -17,6 +17,15 @@ impl Policy {
             "stateful-random" => Ok(Policy::StatefulRandom),
             _ => Err(anyhow::anyhow!("unknown policy: {}", policy)),
         }
+    }
+
+    pub fn all() -> Vec<Policy> {
+        vec![
+            Policy::StatelessMinNodes,
+            Policy::StatelessMaxBalancing,
+            Policy::StatefulBestFit,
+            Policy::StatefulRandom,
+        ]
     }
 }
 
@@ -55,10 +64,10 @@ enum Event {
 impl Event {
     fn time(&self) -> u64 {
         match self {
-            Self::JobStart(t) => *t,
-            Self::JobEnd(t, _) => *t,
-            Self::ExperimentEnd(t) => *t,
-            Self::Defragmentation(t) => *t,
+            Self::JobStart(t)
+            | Self::JobEnd(t, _)
+            | Self::ExperimentEnd(t)
+            | Self::Defragmentation(t) => *t,
         }
     }
 }
@@ -176,6 +185,7 @@ impl Simulation {
 
         // initialize metric counters
         let mut avg_busy_nodes = 0.0;
+        let mut max_busy_nodes = 0.0;
         let mut total_traffic = 0.0;
         let mut migration_rate = 0.0;
 
@@ -186,6 +196,7 @@ impl Simulation {
                 now = event.time();
                 let (busy_nodes, traffic) = self.compute_stats(self.config.node_capacity);
                 avg_busy_nodes += busy_nodes * stat_interval; // unit: s
+                max_busy_nodes = f64::max(max_busy_nodes, busy_nodes);
                 total_traffic += traffic * self.config.job_invocation_rate * stat_interval; // unit: bits
                 match event {
                     Event::JobStart(_) => {
@@ -233,8 +244,15 @@ impl Simulation {
             }
         }
 
+        // adapt the busy node metric to the different policies
+        avg_busy_nodes = match self.config.policy {
+            Policy::StatelessMinNodes => avg_busy_nodes / self.config.duration as f64,
+            Policy::StatelessMaxBalancing => max_busy_nodes,
+            Policy::StatefulBestFit => panic!("not implemented"),
+            Policy::StatefulRandom => panic!("not implemented"),
+        };
+
         // return the simulation output
-        avg_busy_nodes /= self.config.duration as f64;
         migration_rate /= self.config.duration as f64;
         Output {
             avg_busy_nodes,
@@ -246,8 +264,7 @@ impl Simulation {
 
     fn allocate(&mut self, job_id: u64, job: crate::job::Job) {
         match self.config.policy {
-            Policy::StatelessMinNodes => {}
-            Policy::StatelessMaxBalancing => {}
+            Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => {}
             Policy::StatefulBestFit => panic!("not implemented"),
             Policy::StatefulRandom => panic!("not implemented"),
         };
@@ -258,8 +275,7 @@ impl Simulation {
 
     fn defragment(&mut self) -> (f64, f64) {
         match self.config.policy {
-            Policy::StatelessMinNodes => (0.0, 0.0),
-            Policy::StatelessMaxBalancing => (0.0, 0.0),
+            Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => (0.0, 0.0),
             Policy::StatefulBestFit => panic!("not implemented"),
             Policy::StatefulRandom => panic!("not implemented"),
         }
@@ -267,26 +283,17 @@ impl Simulation {
 
     /// Return the statistics computed at this time: (number of busy nodes, total traffic).
     fn compute_stats(&mut self, node_capacity: usize) -> (f64, f64) {
+        let busy_nodes = |x: &std::collections::HashMap<u64, crate::job::Job>| {
+            (x.values().map(|x| x.total_cpu()).sum::<usize>() as f64 / node_capacity as f64).ceil()
+        };
+        let tot_size = |x: &std::collections::HashMap<u64, crate::job::Job>| {
+            x.values().map(|x| x.total_state_size()).sum::<usize>() as f64
+                + x.values().map(|x| x.total_arg_size()).sum::<usize>() as f64
+        };
         match self.config.policy {
-            Policy::StatelessMinNodes => (
-                (self
-                    .active_jobs
-                    .values()
-                    .map(|x| x.total_cpu())
-                    .sum::<usize>() as f64
-                    / node_capacity as f64)
-                    .ceil(),
-                self.active_jobs
-                    .values()
-                    .map(|x| x.total_state_size())
-                    .sum::<usize>() as f64
-                    + self
-                        .active_jobs
-                        .values()
-                        .map(|x| x.total_arg_size())
-                        .sum::<usize>() as f64,
-            ),
-            Policy::StatelessMaxBalancing => panic!("not implemented"),
+            Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => {
+                (busy_nodes(&self.active_jobs), tot_size(&self.active_jobs))
+            }
             Policy::StatefulBestFit => panic!("not implemented"),
             Policy::StatefulRandom => panic!("not implemented"),
         }
@@ -299,28 +306,43 @@ mod tests {
 
     #[test]
     fn test_simulation_run() -> anyhow::Result<()> {
-        let _ = env_logger::try_init();
-        let mut out = vec![];
-        for i in 1..4 {
-            let mut sim = Simulation::new(Config {
-                duration: 3600 * i,
-                job_lifetime: 10.0,
-                job_interarrival: 1.0,
-                job_invocation_rate: 5.0,
-                node_capacity: 1000,
-                defragmentation_interval: 300,
-                policy: Policy::StatelessMinNodes,
-                state_mul: 100.0,
-                arg_mul: 100.0,
-                seed: 42,
-            })?;
-            out.push(sim.run());
-        }
-        for i in 1..3 {
-            assert!(out[i].avg_busy_nodes * 0.5 < out[0].avg_busy_nodes);
-            assert!(out[i].avg_busy_nodes * 1.5 > out[0].avg_busy_nodes);
-            assert!(out[i].total_traffic > ((1 + i) as f64 - 0.5) * out[0].total_traffic);
-            assert!(out[i].total_traffic < ((1 + i) as f64 + 0.5) * out[0].total_traffic);
+        for policy in Policy::all() {
+            if let Policy::StatefulBestFit | Policy::StatefulRandom = policy {
+                continue;
+            }
+            let _ = env_logger::try_init();
+            let mut out = vec![];
+            for i in 1..4 {
+                let mut sim = Simulation::new(Config {
+                    duration: 3600 * i,
+                    job_lifetime: 10.0,
+                    job_interarrival: 1.0,
+                    job_invocation_rate: 5.0,
+                    node_capacity: 1000,
+                    defragmentation_interval: 300,
+                    policy: policy.clone(),
+                    state_mul: 100.0,
+                    arg_mul: 100.0,
+                    seed: 42,
+                })?;
+                out.push(sim.run());
+            }
+            for i in 1..3 {
+                match policy {
+                    Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => {
+                        assert!(out[i].avg_busy_nodes * 0.5 < out[0].avg_busy_nodes);
+                        assert!(out[i].avg_busy_nodes * 1.5 > out[0].avg_busy_nodes);
+                        assert!(
+                            out[i].total_traffic > ((1 + i) as f64 - 0.5) * out[0].total_traffic
+                        );
+                        assert!(
+                            out[i].total_traffic < ((1 + i) as f64 + 0.5) * out[0].total_traffic
+                        );
+                    }
+                    Policy::StatefulBestFit => panic!("not implemented"),
+                    Policy::StatefulRandom => panic!("not implemented"),
+                };
+            }
         }
 
         Ok(())
