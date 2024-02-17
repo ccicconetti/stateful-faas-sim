@@ -167,9 +167,13 @@ pub struct Simulation {
     job_interarrival_rng: rand::rngs::StdRng,
     job_lifetime_rng: rand::rngs::StdRng,
     active_jobs: std::collections::HashMap<u64, crate::job::Job>,
+
+    // internal data structures used only with stateful policies
     nodes: Vec<Node>,
     allocations: std::collections::HashMap<u64, usize>, // key: hash of job ID and task ID; value: node ID
     allocate_rng: rand::rngs::StdRng,
+
+    // configuration
     config: Config,
 }
 
@@ -222,7 +226,7 @@ impl Simulation {
         let mut avg_busy_nodes = 0.0;
         let mut max_busy_nodes = 0;
         let mut total_traffic = 0.0;
-        let mut migration_rate = 0.0;
+        let mut migration_rate = 0;
 
         // simulation loop
         let real_now = std::time::Instant::now();
@@ -248,8 +252,12 @@ impl Simulation {
                             job
                         );
 
+                        // add it to the set of active jobs
+                        let _insert_ret = self.active_jobs.insert(job_id, job.clone());
+                        assert!(_insert_ret.is_none());
+
                         // allocate the tasks of a job to processing nodes
-                        self.allocate(job_id, job);
+                        self.allocate(job_id, &job);
 
                         // schedule the end of this job
                         events.push(Event::JobEnd(now + job_lifetime, job_id));
@@ -297,12 +305,11 @@ impl Simulation {
         };
 
         // return the simulation output
-        migration_rate /= self.config.duration as f64;
         Output {
             avg_busy_nodes,
             total_traffic,
             seed: self.config.seed,
-            migration_rate,
+            migration_rate: migration_rate as f64 / self.config.duration as f64,
             execution_time,
         }
     }
@@ -312,9 +319,7 @@ impl Simulation {
         job_id * 1000 + task_id as u64
     }
 
-    fn allocate(&mut self, job_id: u64, job: crate::job::Job) {
-        let _insert_ret = self.active_jobs.insert(job_id, job.clone());
-        assert!(_insert_ret.is_none());
+    fn allocate(&mut self, job_id: u64, job: &crate::job::Job) {
         match self.config.policy {
             Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => {}
             Policy::StatefulBestFit => {
@@ -484,11 +489,23 @@ impl Simulation {
         }
     }
 
-    fn defragment(&mut self) -> (f64, f64) {
+    fn defragment(&mut self) -> (f64, u64) {
         match self.config.policy {
-            Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => (0.0, 0.0),
-            Policy::StatefulBestFit => panic!("not implemented"),
-            Policy::StatefulRandom => (0.0, 0.0),
+            Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => (0.0, 0),
+            Policy::StatefulBestFit => {
+                let mut new_nodes = std::mem::take(&mut self.nodes);
+                let mut new_allocations = std::mem::take(&mut self.allocations);
+                assert!(self.nodes.is_empty());
+                assert!(self.allocations.is_empty());
+                for (job_id, job) in self.active_jobs.clone().into_iter() {
+                    self.allocate(job_id, &job);
+                }
+                let mut migration_traffic = 0.0;
+                let mut num_migrations = 0;
+                // XXX
+                (migration_traffic, num_migrations)
+            }
+            Policy::StatefulRandom => (0.0, 0),
         }
     }
 
