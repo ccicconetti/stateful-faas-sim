@@ -37,7 +37,7 @@ struct Args {
     /// Number of parallel workers
     #[arg(long, default_value_t = std::thread::available_parallelism().unwrap().get())]
     concurrency: usize,
-    /// Allocation policy to use
+    /// Allocation policy to use, use 'list' to get a list of policies
     #[arg(long, default_value_t = String::from("stateless-min-nodes"))]
     policy: String,
     /// Name of the CSV output file where to save the metrics collected.
@@ -60,6 +60,24 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
+    anyhow::ensure!(
+        args.additional_fields.matches(",").count() == args.additional_header.matches(",").count(),
+        "--additional_fields and --additional_header have a different number of commas"
+    );
+
+    if args.policy == "list" {
+        println!(
+            "available policies: {}",
+            stateful_faas_sim::simulation::Policy::all()
+                .iter()
+                .map(|x| format!("{}", x))
+                .collect::<Vec<String>>()
+                .join(", ")
+        );
+        return Ok(());
+    }
+    let policy = stateful_faas_sim::simulation::Policy::from(&args.policy)?;
+
     // create the configurations of all the experiments
     let configurations = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
     for seed in args.seed_init..args.seed_end {
@@ -73,7 +91,7 @@ async fn main() -> anyhow::Result<()> {
                 job_invocation_rate: args.job_invocation_rate,
                 node_capacity: args.node_capacity,
                 defragmentation_interval: args.defragmentation_interval,
-                policy: stateful_faas_sim::simulation::Policy::from(&args.policy)?,
+                policy: policy.clone(),
                 state_mul: args.state_mul,
                 arg_mul: args.arg_mul,
                 seed,
