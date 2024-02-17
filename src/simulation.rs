@@ -317,7 +317,72 @@ impl Simulation {
         assert!(_insert_ret.is_none());
         match self.config.policy {
             Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => {}
-            Policy::StatefulBestFit => panic!("not implemented"),
+            Policy::StatefulBestFit => {
+                'allocation_loop: for (index, weight) in job.graph.node_references() {
+                    let task_id = index.index() as u32;
+                    let cpu = weight.cpu_request;
+                    assert!(cpu <= self.config.node_capacity);
+
+                    // if there is a node hosting a task which is a predecessor of this
+                    // node with enough residual capacity to host this task too, then
+                    // use it
+                    for pred_task_id in job.graph.neighbors_directed(index, petgraph::Incoming) {
+                        match self.allocations.get(&Simulation::job_task_hash(
+                            job_id,
+                            pred_task_id.index() as u32,
+                        )) {
+                            Some(pred_node_id) => {
+                                let pred_node = &self.nodes[*pred_node_id];
+                                if let Some(_) = self.capacity_residual(pred_node, cpu) {
+                                    self.add_job(job_id, task_id, *pred_node_id);
+                                    continue 'allocation_loop;
+                                }
+                            }
+                            None => {}
+                        }
+                    }
+
+                    // find the active node that would leaves the smallest residual
+                    // if this task is assigned to it
+                    let mut candidates = vec![];
+                    match self
+                        .nodes
+                        .iter()
+                        .filter_map(|x| self.capacity_residual(x, cpu))
+                        .min()
+                    {
+                        None => {
+                            // there is no node (active or inactive) where this new task would fit
+                        }
+                        Some(min_residual) => {
+                            // there is at least one node where the new task would fit, leaving
+                            // min_residual as residual capacity, including both active and
+                            // inactive nodes
+                            //
+                            // note that an inactive node will be selected below only if there
+                            // are no active nodes that could fulfill the request, with no need
+                            // of filtering on this condition explicitly, because we pick the
+                            // node that leaves the smallest residual
+                            for (node_id, node) in self.nodes.iter().enumerate() {
+                                if let Some(residual) = self.capacity_residual(node, cpu) {
+                                    if residual == min_residual {
+                                        candidates.push(node_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    match candidates.choose(&mut self.allocate_rng) {
+                        Some(node_id) => {
+                            self.add_job(job_id, task_id, *node_id);
+                        }
+                        None => {
+                            self.nodes.push(Node { jobs: vec![] });
+                            self.add_job(job_id, task_id, self.nodes.len() - 1);
+                        }
+                    }
+                }
+            }
             Policy::StatefulRandom => {
                 for (index, weight) in job.graph.node_references() {
                     let task_id = index.index() as u32;
@@ -325,8 +390,7 @@ impl Simulation {
                     assert!(cpu <= self.config.node_capacity);
                     let mut candidates = vec![];
                     for (node_id, node) in self.nodes.iter().enumerate() {
-                        let capacity_used = self.capacity_used(node);
-                        if capacity_used > 0 && (self.config.node_capacity - capacity_used) > cpu {
+                        if let Some(_) = self.capacity_residual(node, cpu) {
                             candidates.push(node_id);
                         }
                     }
@@ -357,8 +421,7 @@ impl Simulation {
     fn deallocate(&mut self, job_id: u64) {
         match self.config.policy {
             Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => {}
-            Policy::StatefulBestFit => panic!("not implemented"),
-            Policy::StatefulRandom => {
+            Policy::StatefulRandom | Policy::StatefulBestFit => {
                 self.active_jobs
                     .get(&job_id)
                     .unwrap()
@@ -407,6 +470,18 @@ impl Simulation {
                     .cpu_request
             })
             .sum::<usize>()
+    }
+
+    /// Return the capacity residual if this node was allocated
+    /// a new task with given capacity, or `None` if the new
+    /// task would not fit into the node.
+    fn capacity_residual(&self, node: &Node, new_capacity: usize) -> Option<usize> {
+        let new_capacity_used = self.capacity_used(node) + new_capacity;
+        if self.config.node_capacity >= new_capacity_used {
+            Some(self.config.node_capacity - new_capacity_used)
+        } else {
+            None
+        }
     }
 
     fn defragment(&mut self) -> (f64, f64) {
@@ -474,9 +549,6 @@ mod tests {
     #[test]
     fn test_simulation_run() -> anyhow::Result<()> {
         for policy in Policy::all() {
-            if let Policy::StatefulBestFit = policy {
-                continue;
-            }
             let _ = env_logger::try_init();
             let mut out = vec![];
             for i in 1..4 {
@@ -496,21 +568,10 @@ mod tests {
             }
             println!("{} {:?}", policy, out);
             for i in 1..3 {
-                match policy {
-                    Policy::StatelessMinNodes
-                    | Policy::StatelessMaxBalancing
-                    | Policy::StatefulRandom => {
-                        assert!(out[i].avg_busy_nodes * 0.5 < out[0].avg_busy_nodes);
-                        assert!(out[i].avg_busy_nodes * 1.5 > out[0].avg_busy_nodes);
-                        assert!(
-                            out[i].total_traffic > ((1 + i) as f64 - 0.5) * out[0].total_traffic
-                        );
-                        assert!(
-                            out[i].total_traffic < ((1 + i) as f64 + 0.5) * out[0].total_traffic
-                        );
-                    }
-                    Policy::StatefulBestFit => panic!("not implemented"),
-                };
+                assert!(out[i].avg_busy_nodes * 0.5 < out[0].avg_busy_nodes);
+                assert!(out[i].avg_busy_nodes * 1.5 > out[0].avg_busy_nodes);
+                assert!(out[i].total_traffic > ((1 + i) as f64 - 0.5) * out[0].total_traffic);
+                assert!(out[i].total_traffic < ((1 + i) as f64 + 0.5) * out[0].total_traffic);
             }
         }
 
