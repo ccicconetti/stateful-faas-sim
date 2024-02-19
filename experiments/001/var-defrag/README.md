@@ -1,6 +1,18 @@
 # Experiment 001 - Sub-experiment var-defrag
 
-## Run
+## Preparation
+
+1. Copy or symlink the executable `stateful_faas_sim` in the current working directory
+2. Symlink the `data` directory from the repo root
+
+Assuming you compiled with `cargo build --release` you can do both steps above with:
+
+```bash
+ln -s ../../../target/release/stateful_faas_sim .
+ln -s ../../../data/ .
+```
+
+## Execution
 
 To see which experiments will run:
 
