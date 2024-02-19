@@ -21,7 +21,7 @@ if [ ! -d ./data ] ; then
 fi
 
 policies="stateless-min-nodes stateless-max-balancing stateful-best-fit stateful-random"
-policies="stateless-best-fit"
+policies="stateful-best-fit"
 defragmentation_intervals="15 30 60 120 300 3600"
 
 for defragmentation_interval in $defragmentation_intervals ; do
@@ -43,7 +43,7 @@ for policy in $policies ; do
 		--additional-fields $policy,$defragmentation_interval, \
 		--additional-header policy,defragmentation-interval,"
 	if [ "$DRY_RUN" == "" ] ; then
-		echo "policy $policy, defragmentation-interval $defragmentation-interval"
+		echo "policy $policy, defragmentation-interval $defragmentation_interval"
 		eval $cmd
 	else
 		echo $cmd
