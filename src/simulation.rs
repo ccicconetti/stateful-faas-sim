@@ -493,10 +493,11 @@ impl Simulation {
         match self.config.policy {
             Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => (0, 0),
             Policy::StatefulBestFit => {
-                let old_nodes = std::mem::take(&mut self.nodes);
+                // save the previous allocation to compute the number of migrations
+                // and the traffic due to the migration of task state
                 let old_allocations = std::mem::take(&mut self.allocations);
-                assert!(self.nodes.is_empty());
                 assert!(self.allocations.is_empty());
+                self.nodes = vec![];
                 let mut migration_traffic = 0;
                 let mut num_migrations = 0;
                 for (job_id, job) in self.active_jobs.clone().into_iter() {
@@ -513,7 +514,6 @@ impl Simulation {
                     }
                 }
                 assert!(self.allocations.len() == old_allocations.len());
-                assert!(self.nodes.len() <= old_nodes.len());
                 (migration_traffic, num_migrations)
             }
             Policy::StatefulRandom => (0, 0),
