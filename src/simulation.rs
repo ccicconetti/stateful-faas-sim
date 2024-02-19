@@ -283,7 +283,7 @@ impl Simulation {
 
                         // perform optimization of the current active jobs
                         let (migration_traffic, num_migrations) = self.defragment();
-                        total_traffic += migration_traffic;
+                        total_traffic += migration_traffic as f64;
                         migration_rate += num_migrations;
 
                         // schedule the next defragmentation
@@ -489,23 +489,34 @@ impl Simulation {
         }
     }
 
-    fn defragment(&mut self) -> (f64, u64) {
+    fn defragment(&mut self) -> (usize, usize) {
         match self.config.policy {
-            Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => (0.0, 0),
+            Policy::StatelessMinNodes | Policy::StatelessMaxBalancing => (0, 0),
             Policy::StatefulBestFit => {
-                let mut new_nodes = std::mem::take(&mut self.nodes);
-                let mut new_allocations = std::mem::take(&mut self.allocations);
+                let old_nodes = std::mem::take(&mut self.nodes);
+                let old_allocations = std::mem::take(&mut self.allocations);
                 assert!(self.nodes.is_empty());
                 assert!(self.allocations.is_empty());
+                let mut migration_traffic = 0;
+                let mut num_migrations = 0;
                 for (job_id, job) in self.active_jobs.clone().into_iter() {
                     self.allocate(job_id, &job);
+                    for (task_id, weight) in job.graph.node_references() {
+                        let allocation_key =
+                            Simulation::job_task_hash(job_id, task_id.index() as u32);
+                        let old_node = old_allocations.get(&allocation_key).unwrap();
+                        let new_node = self.allocations.get(&allocation_key).unwrap();
+                        if old_node != new_node {
+                            num_migrations += 1;
+                            migration_traffic += weight.state_size;
+                        }
+                    }
                 }
-                let mut migration_traffic = 0.0;
-                let mut num_migrations = 0;
-                // XXX
+                assert!(self.allocations.len() == old_allocations.len());
+                assert!(self.nodes.len() <= old_nodes.len());
                 (migration_traffic, num_migrations)
             }
-            Policy::StatefulRandom => (0.0, 0),
+            Policy::StatefulRandom => (0, 0),
         }
     }
 
