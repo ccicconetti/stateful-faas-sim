@@ -149,6 +149,7 @@ set rlabel  font "" textcolor lt -1 norotate
 set rrange [ * : * ] noreverse writeback
 unset logscale
 set logscale x 10
+set logscale y 10
 unset jitter
 set zero 1e-08
 set lmargin  -1
@@ -180,5 +181,7 @@ plot \
 '../100.dat' u 1:($5*sf):($6*sf):($7*sf) w ye lc 1 pt 0 notitle, \
 '' u 1:($5*sf) w lp pt 4 lc 1 title "S/D = 1",\
 '../1000.dat' u 1:($5*sf):($6*sf):($7*sf) w ye lc 2 pt 0 notitle, \
-'' u 1:($5*sf) w lp pt 6 lc 2 title "S/D = 10"
+'' u 1:($5*sf) w lp pt 6 lc 2 title "S/D = 10", \
+'../10000.dat' u 1:($5*sf):($6*sf):($7*sf) w ye lc 3 pt 0 notitle, \
+'' u 1:($5*sf) w lp pt 8 lc 3 title "S/D = 100"
 #    EOF
