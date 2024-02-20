@@ -43,7 +43,7 @@ for policy in $policies ; do
 		--additional-fields $policy,$state_mul, \
 		--additional-header policy,state-mul,"
 	if [ "$DRY_RUN" == "" ] ; then
-		echo "policy $policy"
+		echo "policy $policy, state-mul $state_mul"
 		eval $cmd
 	else
 		echo $cmd
