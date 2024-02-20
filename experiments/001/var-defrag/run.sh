@@ -22,8 +22,11 @@ fi
 
 policies="stateless-min-nodes stateless-max-balancing stateful-best-fit stateful-random"
 policies="stateful-best-fit"
-defragmentation_intervals="15 30 60 120 300 3600"
+defragmentation_intervals="1 5 10 15 30 60 120 300 3600 86400"
+state_muls="100 1000 10000"
+state_muls="10000"
 
+for state_mul in $state_muls ; do
 for defragmentation_interval in $defragmentation_intervals ; do
 for policy in $policies ; do
 	cmd="./stateful_faas_sim \
@@ -32,7 +35,7 @@ for policy in $policies ; do
 		--job-interarrival 1 \
 		--node-capacity 1000 \
 		--defragmentation-interval $defragmentation_interval \
-		--state-mul 100 \
+		--state-mul $state_mul \
 		--arg-mul 100 \
 		--seed-init $SEED_INIT \
 		--seed-end $SEED_END \
@@ -40,13 +43,14 @@ for policy in $policies ; do
 		--policy $policy \
 		--output output.csv \
 		--append \
-		--additional-fields $policy,$defragmentation_interval, \
-		--additional-header policy,defragmentation-interval,"
+		--additional-fields $policy,$state_mul,$defragmentation_interval, \
+		--additional-header policy,state-mul,defragmentation-interval,"
 	if [ "$DRY_RUN" == "" ] ; then
-		echo "policy $policy, defragmentation-interval $defragmentation_interval"
+		echo "policy $policy, state-mul $state_mul, defragmentation-interval $defragmentation_interval"
 		eval $cmd
 	else
 		echo $cmd
 	fi
+done
 done
 done
