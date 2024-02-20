@@ -5,7 +5,7 @@ import numpy as np
 
 df = pd.read_csv("output.csv")
 
-P_N = 50.0  # Watt
+P_N = 100.0  # Watt
 E_B_min = 0.05  # uW/b/s
 E_B_max = 5
 
@@ -29,6 +29,5 @@ for policy in df["policy"].unique():
             p025 = np.quantile(df_metric.values, 0.025)
             p975 = np.quantile(df_metric.values, 0.975)
             line = f"{E_B} {mean} {p025} {p975}"
-            print(f"{policy} {line}")
 
             outfile.write(f"{line}\n")
