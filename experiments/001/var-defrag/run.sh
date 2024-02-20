@@ -33,6 +33,7 @@ for policy in $policies ; do
 		--duration 86400 \
 		--job-lifetime 60 \
 		--job-interarrival 1 \
+		--job-invocation-rate 5 \
 		--node-capacity 1000 \
 		--defragmentation-interval $defragmentation_interval \
 		--state-mul $state_mul \
