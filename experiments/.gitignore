@@ -2,3 +2,4 @@ data
 stateful_faas_sim
 *.csv
 *.dat
+*.pdf
