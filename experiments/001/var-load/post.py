@@ -13,7 +13,6 @@ for E_B in E_B_values:
         with open(f"{policy}-{E_B}.dat", "w", encoding="utf8") as outfile:
             for job_lifetime in sorted(list(df["job-lifetime"].unique())):
 
-                line = f"{job_lifetime}"
                 df_filtered = df.loc[
                     ((df["policy"] == policy) & (df["job-lifetime"] == job_lifetime))
                 ]
