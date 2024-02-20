@@ -24,7 +24,6 @@ policies="stateless-min-nodes stateless-max-balancing stateful-best-fit stateful
 policies="stateful-best-fit"
 defragmentation_intervals="1 5 10 15 30 60 120 300 3600 86400"
 state_muls="100 1000 10000"
-state_muls="10000"
 
 for state_mul in $state_muls ; do
 for defragmentation_interval in $defragmentation_intervals ; do
