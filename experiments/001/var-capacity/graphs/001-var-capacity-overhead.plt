@@ -178,6 +178,6 @@ I = {0.0, 1.0}
 VoxelDistance = 0.0
 ## Last datafile plotted: "../stateless-min-nodes.dat"
 plot \
-'< paste ../stateful-best-fit-30.dat ../stateless-min-nodes-30.dat'  u ($1/1):($5/$10-1) w lp lw 1 lc 1 pt 12 title "{\Symbol D} = 30 s",\
-'< paste ../stateful-best-fit-120.dat ../stateless-min-nodes-30.dat'  u ($1/1):($5/$10-1) w lp lw 1 lc 2 pt 13 title "{\Symbol D} = 120 s"
+'< paste ../stateful-best-fit-30.dat ../stateless-min-nodes-30.dat'  u ($1/1):($5/$10-1) w lp lw 1 lc 1 pt 12 title "{/Symbol D} = 30 s",\
+'< paste ../stateful-best-fit-120.dat ../stateless-min-nodes-30.dat'  u ($1/1):($5/$10-1) w lp lw 1 lc 2 pt 13 title "{/Symbol D} = 120 s"
 #    EOF
