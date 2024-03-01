@@ -178,16 +178,16 @@ I = {0.0, 1.0}
 VoxelDistance = 0.0
 ## Last datafile plotted: "../stateless-min-nodes.dat"
 plot \
-'../stateless-min-nodes-0.05.dat' u ($1/1):2 w lp lw 1 lc 1 pt 4 title "E_B=0.05{/symbol m}W/b/s|stateless|min-nodes",\
+'../stateless-min-nodes-0.05.dat' u ($1/1):2 w lp lw 1 lc 1 pt 4 title "E_B=0.05{/Symbol m}W/b/s|stateless|min-nodes",\
 '' u ($1/1):2:3:4 w ye lc 1 pt 0 notitle,\
-'../stateless-max-balancing-0.05.dat' u ($1/1):2 w lp lw 1 lc 2 pt 6 title "E_B=0.05{/symbol m}W/b/s|stateless|max-balancing",\
+'../stateless-max-balancing-0.05.dat' u ($1/1):2 w lp lw 1 lc 2 pt 6 title "E_B=0.05{/Symbol m}W/b/s|stateless|max-balancing",\
 '' u ($1/1):2:3:4 w ye lc 2 pt 0 notitle,\
-'../stateful-best-fit-0.05.dat' u ($1/1):2 w lp lw 1 lc 3 pt 8 title "E_B=0.05{/symbol m}W/b/s|stateful|best-fit",\
+'../stateful-best-fit-0.05.dat' u ($1/1):2 w lp lw 1 lc 3 pt 8 title "E_B=0.05{/Symbol m}W/b/s|stateful|best-fit",\
 '' u ($1/1):2:3:4 w ye lc 3 pt 0 notitle,\
-'../stateful-random-0.05.dat' u ($1/1):2 w lp lw 1 lc 4 pt 10 title "E_B=0.05{/symbol m}W/b/s|stateful|random",\
+'../stateful-random-0.05.dat' u ($1/1):2 w lp lw 1 lc 4 pt 10 title "E_B=0.05{/Symbol m}W/b/s|stateful|random",\
 '' u ($1/1):2:3:4 w ye lc 4 pt 0 notitle,\
-'../stateful-best-fit-5.dat' u ($1/1):2 w lp lw 1 lc 3 pt 9 title "E_B=5{/symbol m}W/b/s|stateful|best-fit",\
+'../stateful-best-fit-5.dat' u ($1/1):2 w lp lw 1 lc 3 pt 9 title "E_B=5{/Symbol m}W/b/s|stateful|best-fit",\
 '' u ($1/1):2:3:4 w ye lc 3 pt 0 notitle,\
-'../stateful-random-5.dat' u ($1/1):2 w lp lw 1 lc 4 pt 11 title "E_B=5{/symbol m}W/b/s|stateful|random",\
+'../stateful-random-5.dat' u ($1/1):2 w lp lw 1 lc 4 pt 11 title "E_B=5{/Symbol m}W/b/s|stateful|random",\
 '' u ($1/1):2:3:4 w ye lc 4 pt 0 notitle
 #    EOF
