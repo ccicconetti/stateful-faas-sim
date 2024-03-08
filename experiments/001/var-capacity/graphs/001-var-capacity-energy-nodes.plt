@@ -136,7 +136,7 @@ set x2label ""
 set x2label  font "" textcolor lt -1 norotate
 set xrange [ 800 : 4000 ] noreverse writeback
 set x2range [ * : * ] noreverse writeback
-set ylabel "Daily energy consumption (kWh)" 
+set ylabel "Daily energy consumption - Processing (kWh)" 
 set ylabel  font "" textcolor lt -1 rotate
 set y2label "" 
 set y2label  font "" textcolor lt -1 rotate
