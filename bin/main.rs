@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     anyhow::ensure!(
-        args.additional_fields.matches(",").count() == args.additional_header.matches(",").count(),
+        args.additional_fields.matches(',').count() == args.additional_header.matches(',').count(),
         "--additional_fields and --additional_header have a different number of commas"
     );
 

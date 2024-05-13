@@ -332,18 +332,14 @@ impl Simulation {
                     // node with enough residual capacity to host this task too, then
                     // use it
                     for pred_task_id in job.graph.neighbors_directed(index, petgraph::Incoming) {
-                        match self.allocations.get(&Simulation::job_task_hash(
-                            job_id,
-                            pred_task_id.index() as u32,
-                        )) {
-                            Some(pred_node_id) => {
-                                let pred_node = &self.nodes[*pred_node_id];
-                                if let Some(_) = self.capacity_residual(pred_node, cpu) {
-                                    self.add_job(job_id, task_id, *pred_node_id);
-                                    continue 'allocation_loop;
-                                }
+                        if let Some(pred_node_id) = self.allocations.get(
+                            &Simulation::job_task_hash(job_id, pred_task_id.index() as u32),
+                        ) {
+                            let pred_node = &self.nodes[*pred_node_id];
+                            if self.capacity_residual(pred_node, cpu).is_some() {
+                                self.add_job(job_id, task_id, *pred_node_id);
+                                continue 'allocation_loop;
                             }
-                            None => {}
                         }
                     }
 
@@ -395,7 +391,7 @@ impl Simulation {
                     assert!(cpu <= self.config.node_capacity);
                     let mut candidates = vec![];
                     for (node_id, node) in self.nodes.iter().enumerate() {
-                        if let Some(_) = self.capacity_residual(node, cpu) {
+                        if self.capacity_residual(node, cpu).is_some() {
                             candidates.push(node_id);
                         }
                     }
